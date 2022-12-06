@@ -2,10 +2,9 @@
 import datetime
 from time import mktime
 
-from flask import Flask, request #, Response
+from flask import Flask, request
 import jwt
 import requests
-#import logging 
 
 from secrets import api_auth_token, jwt_secret_key
 from utils import parse_date_time
@@ -13,7 +12,7 @@ from business import get_user_by_email
 
 app = Flask(__name__)
 
-def clean_widgets(args, list_acceptable = ['type', 'created_start', 'created_end']):
+def clean_widgets(args, query, list_acceptable = ['type', 'created_start', 'created_end']):
     """
     verify that the parameters of a request are within the list of accepted,
     as well as within the specific user scope
@@ -21,13 +20,13 @@ def clean_widgets(args, list_acceptable = ['type', 'created_start', 'created_end
     for arg in args:
         assert arg in list_acceptable
     for possible_arg in list_acceptable:
-        if possible_arg not in args:
-            args[possible_arg] = None
-    if args['created_start'] != None:
-        args['created_start'] = parse_date_time(args['created_start'])
-    if args['created_end'] != None:
-        args['created_end'] = parse_date_time(args['created_end'])
-    return args
+        if possible_arg not in query.keys():
+            query[possible_arg] = None
+    if query['created_start'] != None:
+        query['created_start'] = parse_date_time(query['created_start'])
+    if query['created_end'] != None:
+        query['created_end'] = parse_date_time(query['created_end'])
+    return query
 
 def create_type_label(raw_type):
     """
@@ -83,26 +82,20 @@ def get_user_from_token():
     # Authorization: Bearer {token}
     # Where {token} is the token created by the login route
     ##S this token is an encoded JWT as a bearer token. Returning all user info
+    ##S this requires that the jwt is sent as a bearer token in the auth header
     return decode_auth_token(request.headers.get('Authorization').split()[1]) 
 
 @app.route('/')
 def status():
     return 'API Test Is Up'
 
-@app.route('/test', methods=['GET'])
-def test():
-    return 'API Is Running'
-
-
 @app.route('/user', methods=['GET'])
 def user():
     # get the user data from the auth/header/jwt
     ##S user_info = get_user_by_email(get_user_from_token()['email'])
     user_info = get_user_from_token()
-
     if user_info:
         return user_info
-
     else:
         return {
             'user_id': '',
@@ -116,16 +109,12 @@ def login():
     # use the get_user_by_email function to get the user data
     # return the encoded json web token as a token property on the json response as in the format below
     # we're not actually validitating a password or anything because that would add unneeded complexity
-    
     post_body = request.json
-    
-    # if not post_body:
-    #     logging.error("No post body")
-    #     return Response(status=400)
-
     user = get_user_by_email(post_body['email']) ## assuming email is a UID
     if user:
-        return encode_auth_token(user['id'], user['name'], user['email'], post_body['scope'])
+        return {
+            'token': encode_auth_token(user['id'], user['name'], user['email'], post_body['scope'])
+            }
     if not user:
         return {
             'token': ''
@@ -137,53 +126,29 @@ def widgets():
     # accept the following optional query parameters (using the the flask.request object to get the query params)
     # type, created_start, created_end
     # dates will be in iso format (2019-01-04T16:41:24+0200)
-    # dates can be parsed using the parse_date_time function written and imported for you above
-    query_body = request.json
-    args = request.args
-
     # get the user ID from the auth/header
     user_info = get_user_from_token()
-
     # verify that the token has the widgets scope in the list of scopes
-    clean_widgets = verify_token_widgets(args, user_info['scope'])
-
+    cleaned_widgets = clean_widgets(request.args, request.json)
+    ##S unsure about this implementation... assert 'widgets' in user_info['scope']
     # Using the requests library imported above send the following the following request,
-
     # GET https://us-central1-interview-d93bf.cloudfunctions.net/widgets?user_id={user_id}
     # HEADERS
     # Authorization: apiKey {api_auth_token}
     user_id = get_user_by_email(user_info['email'])['id']
-    
-    ##S something wtih request.headers.get('Authorization')
+    ##S not 100% sure about header implementation here, but the API doesnt seem to be working (have tried postman and URL link)
     auth_header = {"Authorization": "X-API-Key {}" "{}".format(api_auth_token, request.headers.get('Authorization'))} #this will include the API token and the JWT as a bearer token
     widgets_API = requests.get('https://us-central1-interview-d93bf.cloudfunctions.net/widgets?user_id={user_id}', headers=auth_header).content
-    # the api will return the data in the following format
-
-    # [ { "id": 1, "type": "floogle", "created": "2019-01-04T16:41:24+0200" } ]
-    # dates can again be parsed using the parse_date_time function
-    # filter the results by the query parameters
+    # the api will return the data in the following format: [ { "id": 1, "type": "floogle", "created": "2019-01-04T16:41:24+0200" } ]
     matching_items = []
-    for widget in widgets_API:
+    for widget in widgets_API: # filter the results by the query parameters
         if widget['type'] in user_info['scope'] and check_date_in_range(parse_date_time(widget['created']), args['created_start'], args['created_end']):
             matching_items.append({'id': widget['id'], 'type': widget['type'], "type_label": create_type_label(widget['type']), "created": parse_date_time(widget['created'])})
 
-    # return the data in the format below
     return {
         'total_widgets_own_by_user': len(widgets_API)
         'matching_items': matching_items
     }
-    # return {
-    #     'total_widgets_own_by_user': 2,
-    #     'matching_items': [
-    #         {
-    #             "id": 0,
-    #             "type": "foo-bar",
-    #             "type_label": "Foo Bar",  # replace dashes with spaces and capitalize words
-    #             "created": datetime.datetime.now().isoformat(), # remember to replace
-    #         }
-    #     ]
-    # }
-
 
 if __name__ == '__main__':
     app.run()
