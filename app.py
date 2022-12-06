@@ -1,9 +1,11 @@
+##S -> indicator that the comment was added by Sabina
 import datetime
 from time import mktime
 
-from flask import Flask, request
+from flask import Flask, request #, Response
 import jwt
 import requests
+#import logging 
 
 from secrets import api_auth_token, jwt_secret_key
 from utils import parse_date_time
@@ -16,7 +18,7 @@ def decode_auth_token(auth_token):
     # use jwt, jwt_secret_key
     # should be a one liner, but we want you to see how JWTs work
     ##S depending on which algorithm is used to encode, may need to change that parameter
-    return jwt.decode(auth_token, jwt_secret_key, algorithms="HS256")
+    return jwt.decode(auth_token, jwt_secret_key) #, algorithms=["HS256"])
 
 
 def encode_auth_token(user_id, name, email, scopes):
@@ -33,8 +35,7 @@ def encode_auth_token(user_id, name, email, scopes):
         'scope': scopes,
         'exp': mktime((datetime.datetime.now() + datetime.timedelta(days=1)).timetuple())
     }
-    encoded = jwt.encode(payload, jwt_secret_key, algorithms="HS256")
-    return encoded.decode("utf-8")
+    return jwt.encode(payload, jwt_secret_key).decode("utf-8") #, algorithm="HS256").decode("utf-8")
 
 
 def get_user_from_token():
@@ -42,43 +43,56 @@ def get_user_from_token():
     # should pull token from the Authorization header
     # Authorization: Bearer {token}
     # Where {token} is the token created by the login route
-    pass
-
+    ##S this token is an encoded JWT as a bearer token. Returning all user info
+    return decode_auth_token(request.headers.get('Authorization').split()[1]) 
 
 @app.route('/')
 def status():
-    return 'API Is Up'
+    return 'API Test Is Up'
+
+@app.route('/test', methods=['GET'])
+def test():
+    return 'API Is Running'
 
 
 @app.route('/user', methods=['GET'])
 def user():
     # get the user data from the auth/header/jwt
-    return {
-        'user_id': '',
-        'name': '',
-        'email': ''
-    }
+    user_info = get_user_by_email(get_user_from_token()['email'])
 
+    if user_info:
+        return {
+            'user_id': user_info['id'],
+            'name': user_info['name'],
+            'email': user_info['email']
+        }
+    else:
+        return {
+            'user_id': '',
+            'name': '',
+            'email': ''
+        }
 
 @app.route('/login', methods=['POST'])
 def login():
     # use use flask.request to get the json body and get the email and scopes property
     # use the get_user_by_email function to get the user data
-    # return a the encoded json web token as a token property on the json response as in the format below
+    # return the encoded json web token as a token property on the json response as in the format below
     # we're not actually validitating a password or anything because that would add unneeded complexity
     
-    ##S This hasn't been checked since app is not fully up and working
     post_body = request.json
     
-    if not post_body:
-        logging.error("No post body")
-        return Response(status=400)
+    # if not post_body:
+    #     logging.error("No post body")
+    #     return Response(status=400)
 
     user = get_user_by_email(post_body['email']) ## assuming email is a UID
-    return encode_auth_token(user[id], user[name], user[email], post_body['scopes'])
-    # return {
-    #     'token': ''
-    # }
+    if user:
+        return encode_auth_token(user['id'], user['name'], user['email'], post_body['scopes'])
+    if not user:
+        return {
+            'token': ''
+        }
 
 
 @app.route('/widgets', methods=['GET'])
