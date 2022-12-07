@@ -12,7 +12,7 @@ from business import get_user_by_email
 
 app = Flask(__name__)
 
-def clean_widgets(args, query, list_acceptable = ['type', 'created_start', 'created_end']):
+def clean_widgets(args, list_acceptable = ['type', 'created_start', 'created_end']):
     """
     verify that the parameters of a request are within the list of accepted,
     as well as within the specific user scope
@@ -112,9 +112,10 @@ def login():
     post_body = request.json
     user = get_user_by_email(post_body['email']) ## assuming email is a UID
     if user:
-        return {
-            'token': encode_auth_token(user['id'], user['name'], user['email'], post_body['scope'])
-            }
+        return encode_auth_token(user['id'], user['name'], user['email'], post_body['scope'])
+        # {
+        #     'token': encode_auth_token(user['id'], user['name'], user['email'], post_body['scope'])
+        #     }
     if not user:
         return {
             'token': ''
@@ -128,8 +129,8 @@ def widgets():
     # dates will be in iso format (2019-01-04T16:41:24+0200)
     # get the user ID from the auth/header
     user_info = get_user_from_token()
-    # verify that the token has the widgets scope in the list of scopes
-    cleaned_widgets = clean_widgets(request.args, request.json)
+    ## ignore! verify that the token has the widgets scope in the list of scopes
+    cleaned_widgets = request.args
     ##S unsure about this implementation... assert 'widgets' in user_info['scope']
     # Using the requests library imported above send the following the following request,
     # GET https://us-central1-interview-d93bf.cloudfunctions.net/widgets?user_id={user_id}
@@ -137,16 +138,24 @@ def widgets():
     # Authorization: apiKey {api_auth_token}
     user_id = get_user_by_email(user_info['email'])['id']
     ##S not 100% sure about header implementation here, but the API doesnt seem to be working (have tried postman and URL link)
-    auth_header = {"Authorization": "X-API-Key {}" "{}".format(api_auth_token, request.headers.get('Authorization'))} #this will include the API token and the JWT as a bearer token
+    #auth_header = {"Authorization": "X-API-Key {}" "{}".format(api_auth_token, request.headers.get('Authorization'))} #this will include the API token and the JWT as a bearer token
+    auth_header = {"Authorization": "apiKey {api_auth_token}"} #this will include the API token and the JWT as a bearer token
     widgets_API = requests.get('https://us-central1-interview-d93bf.cloudfunctions.net/widgets?user_id={user_id}', headers=auth_header).content
     # the api will return the data in the following format: [ { "id": 1, "type": "floogle", "created": "2019-01-04T16:41:24+0200" } ]
+    
+    created_start = parse_date_time(request.args.get('created_start'))
+    created_end = parse_date_time(request.args.get('created_end'))
+    request_type = request.args.get('type')
+
     matching_items = []
     for widget in widgets_API: # filter the results by the query parameters
-        if widget['type'] in user_info['scope'] and check_date_in_range(parse_date_time(widget['created']), args['created_start'], args['created_end']):
+        matches_type = widget['type'] == request_type or not request_type
+        in_date_range = check_date_in_range(parse_date_time(widget['created']), created_start, created_end)
+        if matches_type and in_date_range:
             matching_items.append({'id': widget['id'], 'type': widget['type'], "type_label": create_type_label(widget['type']), "created": parse_date_time(widget['created'])})
 
     return {
-        'total_widgets_own_by_user': len(widgets_API)
+        'total_widgets_own_by_user': len(widgets_API),
         'matching_items': matching_items
     }
 
