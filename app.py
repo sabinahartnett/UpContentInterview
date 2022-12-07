@@ -112,10 +112,9 @@ def login():
     post_body = request.json
     user = get_user_by_email(post_body['email']) ## assuming email is a UID
     if user:
-        return encode_auth_token(user['id'], user['name'], user['email'], post_body['scope'])
-        # {
-        #     'token': encode_auth_token(user['id'], user['name'], user['email'], post_body['scope'])
-        #     }
+        return {
+            'token': encode_auth_token(user['id'], user['name'], user['email'], post_body['scope'])
+            }
     if not user:
         return {
             'token': ''
@@ -139,17 +138,19 @@ def widgets():
     user_id = get_user_by_email(user_info['email'])['id']
     ##S not 100% sure about header implementation here, but the API doesnt seem to be working (have tried postman and URL link)
     #auth_header = {"Authorization": "X-API-Key {}" "{}".format(api_auth_token, request.headers.get('Authorization'))} #this will include the API token and the JWT as a bearer token
-    auth_header = {"Authorization": "apiKey {api_auth_token}"} #this will include the API token and the JWT as a bearer token
-    widgets_API = requests.get('https://us-central1-interview-d93bf.cloudfunctions.net/widgets?user_id={user_id}', headers=auth_header).content
+    auth_header = {"Authorization": f"apiKey {api_auth_token}"} #this will include the API token and the JWT as a bearer token
+    url = f'https://us-central1-interview-d93bf.cloudfunctions.net/widgets?user_id={user_id}'
+    print(url)
+    widgets_API = requests.get(url, headers=auth_header).json()
     # the api will return the data in the following format: [ { "id": 1, "type": "floogle", "created": "2019-01-04T16:41:24+0200" } ]
-    
+
     created_start = parse_date_time(request.args.get('created_start'))
     created_end = parse_date_time(request.args.get('created_end'))
     request_type = request.args.get('type')
 
     matching_items = []
     for widget in widgets_API: # filter the results by the query parameters
-        matches_type = widget['type'] == request_type or not request_type
+        matches_type = (widget['type'] == request_type) or not request_type
         in_date_range = check_date_in_range(parse_date_time(widget['created']), created_start, created_end)
         if matches_type and in_date_range:
             matching_items.append({'id': widget['id'], 'type': widget['type'], "type_label": create_type_label(widget['type']), "created": parse_date_time(widget['created'])})
